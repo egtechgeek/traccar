@@ -1,5 +1,6 @@
 /*
  * Copyright 2026 Anton Tananaev (anton@traccar.org)
+ * Contributed by EGTechGEEK
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -84,7 +85,24 @@ public final class Gl200Io {
         }
         position.set(ioKey + "Name", name);
         if (position.hasAttribute(ioKey)) {
-            position.set(name, position.getAttributes().get(ioKey));
+            Object value = position.getAttributes().get(ioKey);
+            if (value instanceof Boolean booleanValue) {
+                position.set(name, booleanValue);
+            } else if (value instanceof Byte byteValue) {
+                position.set(name, byteValue);
+            } else if (value instanceof Short shortValue) {
+                position.set(name, shortValue);
+            } else if (value instanceof Integer integerValue) {
+                position.set(name, integerValue);
+            } else if (value instanceof Long longValue) {
+                position.set(name, longValue);
+            } else if (value instanceof Float floatValue) {
+                position.set(name, floatValue);
+            } else if (value instanceof Double doubleValue) {
+                position.set(name, doubleValue);
+            } else if (value != null) {
+                position.set(name, value.toString());
+            }
         }
     }
 

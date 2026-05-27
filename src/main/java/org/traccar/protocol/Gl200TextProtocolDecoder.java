@@ -1,5 +1,6 @@
 /*
  * Copyright 2012 - 2026 Anton Tananaev (anton@traccar.org)
+ * Contributed by EGTechGEEK
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
