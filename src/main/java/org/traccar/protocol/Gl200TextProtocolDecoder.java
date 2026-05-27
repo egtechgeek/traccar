@@ -800,6 +800,93 @@ public class Gl200TextProtocolDecoder extends BaseProtocolDecoder {
         position.set(Position.KEY_OUTPUT, output);
         position.set(Position.PREFIX_OUT + 1, BitUtil.check(output, 0));
         position.set(Position.PREFIX_OUT + 2, BitUtil.check(output, 1));
+        position.set(Position.PREFIX_OUT + 3, BitUtil.check(output, 2));
+        Gl200Io.applyIoNames(getCacheManager(), position);
+    }
+
+    private static boolean useFriSplitDecoder(String model, String protocolVersion) {
+        return switch (model) {
+            case "GV350M", "GV500MAP", "GV58LAU", "GV355CEU", "GV30CEU" -> true;
+            default -> {
+                String prefix = protocolVersion.length() > 6
+                        ? protocolVersion.substring(0, 6) : protocolVersion.substring(0, 2);
+                yield prefix.startsWith("F1")
+                        || prefix.startsWith("802004")
+                        || prefix.startsWith("802005")
+                        || prefix.startsWith("80201E")
+                        || prefix.equals("5E");
+            }
+        };
+    }
+
+    private boolean isLocationIndex(String[] v, int index) {
+        return index + 5 < v.length
+                && v[index].matches("-?\\d+\\.?\\d*")
+                && v[index + 4].matches("-?\\d{1,3}\\.\\d{6}");
+    }
+
+    private int decodeFriTail(Position position, String model, String[] v, int index, Integer reportType) {
+
+        if (!model.startsWith("GL5")) {
+            while (index < v.length - 2 && v[index].isEmpty()) {
+                index += 1;
+            }
+            if (index < v.length - 2 && !v[index].isEmpty()) {
+                if (v[index].contains(".")) {
+                    position.set(Position.KEY_ODOMETER, Double.parseDouble(v[index++]) * 1000);
+                } else if (v[index].matches("\\p{XDigit}{1,2}")) {
+                    index += 1; // send / append type
+                    if (index < v.length - 2 && !v[index].isEmpty() && v[index].contains(".")) {
+                        position.set(Position.KEY_ODOMETER, Double.parseDouble(v[index++]) * 1000);
+                    }
+                }
+            }
+        }
+        if (!model.startsWith("GL5") && !model.equals("GL320M")) {
+            position.set(Position.KEY_HOURS, parseHours(v[index++]));
+            if (!v[index++].isEmpty()) {
+                decodeAnalog(position, 1, v[index - 1]);
+            }
+        }
+        if (model.startsWith("GV") && !model.startsWith("GV6") && !model.equals("GV350M")) {
+            if (!v[index++].isEmpty()) {
+                decodeAnalog(position, 2, v[index - 1]);
+            }
+        }
+        if (model.equals("GV200") || model.equals("GV310LAU")) {
+            if (!v[index++].isEmpty()) {
+                decodeAnalog(position, 3, v[index - 1]);
+            }
+        }
+        if (model.startsWith("GV3") && model.endsWith("CEU") || model.startsWith("GV600M")) {
+            index += 1; // reserved
+        }
+
+        if (model.startsWith("GL5")) {
+            position.set(Position.KEY_BATTERY_LEVEL, v[index++].isEmpty() ? null : Integer.parseInt(v[index - 1]));
+            index += 1; // mode selection
+            position.set(Position.KEY_MOTION, v[index++].isEmpty() ? null : Integer.parseInt(v[index - 1]) > 0);
+        } else if (model.equals("GV200")) {
+            position.set(Position.KEY_INPUT, v[index++].isEmpty() ? null : Integer.parseInt(v[index - 1], 16));
+            position.set(Position.KEY_OUTPUT, v[index++].isEmpty() ? null : Integer.parseInt(v[index - 1], 16));
+            Gl200Io.applyIoNames(getCacheManager(), position);
+            index += 1; // uart device type
+        } else if (model.equals("GL320M")) {
+            position.set(Position.KEY_BATTERY_LEVEL, v[index++].isEmpty() ? null : Integer.parseInt(v[index - 1]));
+        } else {
+            position.set(Position.KEY_BATTERY_LEVEL, v[index++].isEmpty() ? null : Integer.parseInt(v[index - 1]));
+            if (!v[index++].isEmpty()) {
+                decodeStatus(position, Long.parseLong(v[index - 1], 16));
+            }
+            index += 1; // reserved / uart device type
+        }
+
+        if (reportType != null) {
+            position.set(Position.KEY_MOTION, BitUtil.check(reportType, 0));
+            position.set(Position.KEY_CHARGE, BitUtil.check(reportType, 1));
+        }
+
+        return index;
     }
 
     private static final Pattern PATTERN_FRI = new PatternBuilder()
@@ -849,7 +936,7 @@ public class Gl200TextProtocolDecoder extends BaseProtocolDecoder {
             .text("$").optional()
             .compile();
 
-    private Object decodeFri(Channel channel, SocketAddress remoteAddress, String sentence) {
+    private Object decodeFriPattern(Channel channel, SocketAddress remoteAddress, String sentence) {
         Parser parser = new Parser(PATTERN_FRI, sentence);
         if (!parser.matches()) {
             return null;
@@ -931,6 +1018,115 @@ public class Gl200TextProtocolDecoder extends BaseProtocolDecoder {
         }
 
         return positions;
+    }
+
+    private Object decodeFriSplit(Channel channel, SocketAddress remoteAddress, String[] v) {
+        int index = 0;
+        index += 1; // header
+        String protocolVersion = v[index++];
+        DeviceSession deviceSession = getDeviceSession(channel, remoteAddress, v[index++]);
+        if (deviceSession == null) {
+            return null;
+        }
+
+        String model = getDeviceModel(deviceSession, protocolVersion);
+
+        String vin = null;
+        if (index < v.length && v[index].matches("[0-9A-Z]{17}")) {
+            vin = v[index++];
+            index += 1; // device name
+        } else if (index + 1 < v.length && !v[index].isEmpty() && !v[index + 1].isEmpty()
+                && v[index + 1].matches("\\d+") && Integer.parseInt(v[index + 1]) > 10) {
+            index += 1; // device name without vin column
+        } else {
+            index += 1; // vin
+            index += 1; // device name
+        }
+
+        Double power = null;
+        if (index < v.length && !v[index].isEmpty()) {
+            int powerValue = Integer.parseInt(v[index]);
+            if (powerValue > 10) {
+                power = powerValue / 1000.0;
+            }
+        }
+        index += 1; // power
+
+        while (index < v.length && v[index].isEmpty()) {
+            index += 1; // reserved
+        }
+
+        Integer reportType = null;
+        if (index < v.length && !v[index].isEmpty()) {
+            reportType = Integer.parseInt(v[index]);
+        }
+        index += 1; // report type
+
+        int count = 1;
+        if (index < v.length && !v[index].isEmpty()) {
+            count = Integer.parseInt(v[index++]);
+        } else {
+            index += 1;
+        }
+
+        Integer battery = null;
+        if (index < v.length && !isLocationIndex(v, index)) {
+            if (!v[index].isEmpty()) {
+                battery = Integer.parseInt(v[index]);
+            }
+            index += 1;
+        }
+
+        LinkedList<Position> positions = new LinkedList<>();
+        for (int i = 0; i < count; i++) {
+            Position position = new Position(getProtocolName());
+            position.setDeviceId(deviceSession.getDeviceId());
+            if (vin != null) {
+                position.set(Position.KEY_VIN, vin);
+            }
+            index = decodeLocation(position, model, v, index);
+            positions.add(position);
+        }
+
+        if (positions.isEmpty()) {
+            return null;
+        }
+
+        Position position = positions.getLast();
+        position.set(Position.KEY_POWER, power);
+        if (battery != null) {
+            position.set(Position.KEY_BATTERY_LEVEL, battery);
+        }
+
+        decodeFriTail(position, model, v, index, reportType);
+
+        Date time = DateUtil.parse(DATE_FORMAT, v[v.length - 2]);
+        if (ignoreFixTime) {
+            position.setTime(time);
+            positions.clear();
+            positions.add(position);
+        } else {
+            position.setDeviceTime(time);
+        }
+
+        return positions;
+    }
+
+    private Object decodeFri(Channel channel, SocketAddress remoteAddress, String sentence) {
+        String[] v = sentence.split(",");
+        if (v.length < 3) {
+            return null;
+        }
+        String protocolVersion = v[1];
+        DeviceSession deviceSession = getDeviceSession(channel, remoteAddress, v[2]);
+        if (deviceSession == null) {
+            return null;
+        }
+        String model = getDeviceModel(deviceSession, protocolVersion);
+        if (useFriSplitDecoder(model, protocolVersion)) {
+            return decodeFriSplit(channel, remoteAddress, v);
+        }
+        return decodeFriPattern(channel, remoteAddress, sentence);
     }
 
     private Object decodeEri(Channel channel, SocketAddress remoteAddress, String[] v) {

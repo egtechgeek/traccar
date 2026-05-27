@@ -29,6 +29,7 @@ public class Gl200Protocol extends BaseProtocol {
     @Inject
     public Gl200Protocol(Config config) {
         setSupportedDataCommands(
+                Command.TYPE_CUSTOM,
                 Command.TYPE_POSITION_SINGLE,
                 Command.TYPE_ENGINE_STOP,
                 Command.TYPE_ENGINE_RESUME,

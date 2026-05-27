@@ -126,6 +126,14 @@ public class Gl200TextProtocolDecoderTest extends ProtocolTest {
         verifyAttributes(decoder, buffer(
                 "+RESP:GTCAN,F10413,862599050467479,GV350M,0,1,C18CFDFF,3BKHHZ8X7GF723380,2,H2898058,232160.50,896,0,64,L/H1.5,P99.20,0,40532.95,,,,,,,,,,,1,0.0,234,2812.2,-78.508807,-0.218812,20240226211921,,,,,,20240226211922,DE03$"));
 
+        verifyAttributes(decoder, buffer(
+                "+RESP:GTFRI,F10413,862599050523883,,,10,1,1,0.0,0,-2.2,-80.200856,26.230029,20260527152134,0310,0260,81FB,04181C01,,0.0,,,100,110007,,,20260527152135,781D$"),
+                Position.KEY_BATTERY_LEVEL, 100,
+                Position.KEY_ODOMETER, 0.0,
+                Position.KEY_IGNITION, false,
+                Position.KEY_OUTPUT, 7L,
+                Position.KEY_CHARGE, true);
+
         verifyAttribute(decoder, buffer(
                 "+RESP:GTFRI,8020040703,866314060299813,,,10,1,1,0.0,275,937.7,-68.891157,-33.008722,20260514010456,,,,,00,,,,,,100,110000,,,,20260514010458,BBCE$"),
                 Position.KEY_BATTERY_LEVEL, 100);
