@@ -25,11 +25,17 @@ import java.util.Locale;
 
 public class Gl200ProtocolEncoder extends StringProtocolEncoder {
 
+    /**
+     * GV350M-family {@code AT+GTOUT} trailing fields (bench-confirmed on GV350MG F104), after the output slots:
+     * {@code ,,,,,,,0,0,0,0,,,0,FFFF$}
+     */
+    private static final String GV350M_GTOUT_TAIL = ",,,,,,,0,0,0,0,,,0,FFFF$";
+
     public Gl200ProtocolEncoder(Protocol protocol) {
         super(protocol);
     }
 
-    private static boolean useExtendedGtout(String model) {
+    private static boolean useGv350mFamily(String model) {
         if (model == null || model.isEmpty()) {
             return false;
         }
@@ -38,6 +44,10 @@ public class Gl200ProtocolEncoder extends StringProtocolEncoder {
                     "GV600M", "GV600MG", "GV800W", "GV600W" -> true;
             default -> false;
         };
+    }
+
+    private static boolean useExtendedGtout(String model) {
+        return useGv350mFamily(model);
     }
 
     private String getDefaultPassword(long deviceId) {
@@ -58,16 +68,41 @@ public class Gl200ProtocolEncoder extends StringProtocolEncoder {
         int out1 = immobilizer == 1 && active ? 1 : 0;
         int out2 = immobilizer == 2 && active ? 1 : 0;
         int out3 = immobilizer == 3 && active ? 1 : 0;
+        int out2Duration = immobilizer == 2 && active ? Gl200Io.getOutputCycleDurationTicks(device, 2) : 0;
+        int out2Cycles = immobilizer == 2 && active ? Gl200Io.getOutputCycleCount(device, 2) : 0;
+        int out3Duration = immobilizer == 3 && active ? Gl200Io.getOutputCycleDurationTicks(device, 3) : 0;
+        int out3Cycles = immobilizer == 3 && active ? Gl200Io.getOutputCycleCount(device, 3) : 0;
         String model = getDeviceModel(command.getDeviceId());
         if (useExtendedGtout(model)) {
             return formatCommand(command, String.format(
-                    "AT+GTOUT=%%s,%d,,,%d,0,0,%d,0,0,,,,,,,0,2,0,0,,,FFFF$",
-                    out1, out2, out3),
+                    "AT+GTOUT=%%s,%d,,,%d,%d,%d,%d,%d,%d%s",
+                    out1, out2, out2Duration, out2Cycles, out3, out3Duration, out3Cycles, GV350M_GTOUT_TAIL),
                     Command.KEY_DEVICE_PASSWORD);
         }
         int legacyStatus = immobilizer == 1 && active ? 1 : 0;
         return formatCommand(command, String.format(
                 "AT+GTOUT=%%s,%d,,,0,0,0,0,0,0,0,,,,,,,FFFF$", legacyStatus),
+                Command.KEY_DEVICE_PASSWORD);
+    }
+
+    private String formatOutputControl(Command command) {
+        Device device = getCacheManager().getObject(Device.class, command.getDeviceId());
+        String model = getDeviceModel(command.getDeviceId());
+        if (!useExtendedGtout(model)) {
+            return null;
+        }
+        int index = command.getInteger(Command.KEY_INDEX);
+        int state = command.getInteger(Command.KEY_DATA);
+        int out1 = index == 1 && state != 0 ? 1 : 0;
+        int out2 = index == 2 && state != 0 ? 1 : 0;
+        int out3 = index == 3 && state != 0 ? 1 : 0;
+        int out2Duration = index == 2 && state != 0 ? Gl200Io.getOutputCycleDurationTicks(device, 2) : 0;
+        int out2Cycles = index == 2 && state != 0 ? Gl200Io.getOutputCycleCount(device, 2) : 0;
+        int out3Duration = index == 3 && state != 0 ? Gl200Io.getOutputCycleDurationTicks(device, 3) : 0;
+        int out3Cycles = index == 3 && state != 0 ? Gl200Io.getOutputCycleCount(device, 3) : 0;
+        return formatCommand(command, String.format(
+                "AT+GTOUT=%%s,%d,,,%d,%d,%d,%d,%d,%d%s",
+                out1, out2, out2Duration, out2Cycles, out3, out3Duration, out3Cycles, GV350M_GTOUT_TAIL),
                 Command.KEY_DEVICE_PASSWORD);
     }
 
@@ -88,10 +123,17 @@ public class Gl200ProtocolEncoder extends StringProtocolEncoder {
                     command, "AT+GTRTO=%s,1,,,,,,FFFF$", Command.KEY_DEVICE_PASSWORD);
             case Command.TYPE_ENGINE_STOP -> formatGtout(command, true);
             case Command.TYPE_ENGINE_RESUME -> formatGtout(command, false);
+            case Command.TYPE_OUTPUT_CONTROL -> formatOutputControl(command);
             case Command.TYPE_IDENTIFICATION -> formatCommand(
                     command, "AT+GTRTO=%s,8,,,,,,FFFF$", Command.KEY_DEVICE_PASSWORD);
             case Command.TYPE_REBOOT_DEVICE -> formatCommand(
                     command, "AT+GTRTO=%s,3,,,,,,FFFF$", Command.KEY_DEVICE_PASSWORD);
+            case Command.TYPE_GET_DEVICE_STATUS -> {
+                if (useGv350mFamily(getDeviceModel(command.getDeviceId()))) {
+                    yield formatCommand(command, "AT+GTRTO=%s,A,,,,,,FFFF$", Command.KEY_DEVICE_PASSWORD);
+                }
+                yield null;
+            }
             default -> null;
         };
     }

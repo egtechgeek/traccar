@@ -17,6 +17,7 @@ package org.traccar.protocol;
 
 import com.google.inject.Injector;
 import org.traccar.BaseProtocolDecoder;
+import org.traccar.model.Command;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
@@ -52,6 +53,14 @@ public class Gl200ProtocolDecoder extends BaseProtocolDecoder {
             return binaryProtocolDecoder.decode(channel, remoteAddress, msg);
         } else {
             return textProtocolDecoder.decode(channel, remoteAddress, msg);
+        }
+    }
+
+    /** Stock Traccar drains the entire queue after each report; Queclink handles one AT command at a time. */
+    @Override
+    protected void sendQueuedCommands(Channel channel, SocketAddress remoteAddress, long deviceId) {
+        for (Command command : getCommandsManager().readQueuedCommands(deviceId, 1)) {
+            getProtocol().sendDataCommand(channel, remoteAddress, command);
         }
     }
 

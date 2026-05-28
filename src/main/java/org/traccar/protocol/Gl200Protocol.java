@@ -16,12 +16,15 @@
  */
 package org.traccar.protocol;
 
+import io.netty.channel.Channel;
 import io.netty.handler.codec.string.StringEncoder;
 import org.traccar.BaseProtocol;
 import org.traccar.PipelineBuilder;
 import org.traccar.TrackerServer;
 import org.traccar.config.Config;
 import org.traccar.model.Command;
+
+import java.net.SocketAddress;
 
 import jakarta.inject.Inject;
 
@@ -34,8 +37,10 @@ public class Gl200Protocol extends BaseProtocol {
                 Command.TYPE_POSITION_SINGLE,
                 Command.TYPE_ENGINE_STOP,
                 Command.TYPE_ENGINE_RESUME,
+                Command.TYPE_OUTPUT_CONTROL,
                 Command.TYPE_IDENTIFICATION,
-                Command.TYPE_REBOOT_DEVICE);
+                Command.TYPE_REBOOT_DEVICE,
+                Command.TYPE_GET_DEVICE_STATUS);
         addServer(new TrackerServer(config, getName(), false) {
             @Override
             protected void addProtocolHandlers(PipelineBuilder pipeline, Config config) {
@@ -53,6 +58,23 @@ public class Gl200Protocol extends BaseProtocol {
                 pipeline.addLast(new Gl200ProtocolDecoder(Gl200Protocol.this));
             }
         });
+    }
+
+    @Override
+    public void sendDataCommand(Channel channel, SocketAddress remoteAddress, Command command) {
+        super.sendDataCommand(channel, remoteAddress, command);
+
+        if (command.getType().equals(Command.TYPE_GET_DEVICE_STATUS)) {
+            return;
+        }
+
+        Command queryIo = new Command();
+        queryIo.setDeviceId(command.getDeviceId());
+        queryIo.setType(Command.TYPE_GET_DEVICE_STATUS);
+        if (command.hasAttribute(Command.KEY_DEVICE_PASSWORD)) {
+            queryIo.set(Command.KEY_DEVICE_PASSWORD, command.getString(Command.KEY_DEVICE_PASSWORD));
+        }
+        super.sendDataCommand(channel, remoteAddress, queryIo);
     }
 
 }

@@ -90,6 +90,14 @@ public abstract class BaseProtocolDecoder extends ExtendedObjectDecoder {
         return commandsManager;
     }
 
+    protected ConnectionManager getConnectionManager() {
+        return connectionManager;
+    }
+
+    protected Protocol getProtocol() {
+        return protocol;
+    }
+
     public String writeMediaFile(String uniqueId, ByteBuf buf, String extension) {
         return mediaManager.writeFile(uniqueId, buf, extension);
     }
